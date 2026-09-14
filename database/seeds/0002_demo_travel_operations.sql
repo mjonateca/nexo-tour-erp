@@ -1,4 +1,4 @@
--- Idempotent presentation data for Demo Travel Group.
+-- Idempotent presentation data for Nexo Tour.
 insert into public.suppliers (id,tenant_id,code,legal_name,supplier_type,default_currency,country,city) values
 ('10000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','SUP-RESORT','Demo Resort Punta Cana','HOTEL','USD','Dominican Republic','Punta Cana'),
 ('10000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','SUP-TRANSFER','Caribbean Transfers','TRANSFER','USD','Dominican Republic','Punta Cana'),

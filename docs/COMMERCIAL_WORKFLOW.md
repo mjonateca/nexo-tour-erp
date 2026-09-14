@@ -2,7 +2,7 @@
 
 ## Referencia sectorial
 
-Voyara adopta el flujo integrado habitual en Tourplan para DMCs y operadores: catálogo y contratación → cotización → reserva → confirmación de servicios → operación → factura/cobro. En Tourplan, cotizaciones y reservas comparten el mismo expediente y se diferencian principalmente por estado; al convertir una cotización, se revisan tarifas y disponibilidad y el precio queda ligado al expediente.
+Nexo Tour adopta el flujo integrado habitual en Tourplan para DMCs y operadores: catálogo y contratación → cotización → reserva → confirmación de servicios → operación → factura/cobro. En Tourplan, cotizaciones y reservas comparten el mismo expediente y se diferencian principalmente por estado; al convertir una cotización, se revisan tarifas y disponibilidad y el precio queda ligado al expediente.
 
 Fuentes de contraste:
 
