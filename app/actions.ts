@@ -20,7 +20,8 @@ export async function createCustomer(form: FormData) {
 
 export async function createAgency(form: FormData) {
   const { supabase, tenantId } = await getTenantContext();
-  const payload = { tenant_id: tenantId, code: text(form, "code").toUpperCase(), name: text(form, "name"), market: text(form, "market"), country: text(form, "country"), currency: text(form, "currency").toUpperCase() || "USD", email: text(form, "email") || null, phone: text(form, "phone") || null, credit_limit: number(form, "credit_limit"), commission_pct: number(form, "commission_pct"), payment_terms_days: number(form, "payment_terms_days") || 15, status: "ACTIVE" };
+  const code = text(form, "code").toUpperCase();
+  const payload = { tenant_id: tenantId, code, portal_slug: code.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), name: text(form, "name"), market: text(form, "market"), country: text(form, "country"), currency: text(form, "currency").toUpperCase() || "USD", email: text(form, "email") || null, phone: text(form, "phone") || null, credit_limit: number(form, "credit_limit"), commission_pct: number(form, "commission_pct"), payment_terms_days: number(form, "payment_terms_days") || 15, status: "ACTIVE" };
   if (!payload.code || !payload.name || !payload.market || !payload.country) fail("Código, nombre, mercado y país son obligatorios");
   const { error } = await supabase.from("agencies").insert(payload);
   if (error) fail(`No se pudo crear la agencia: ${error.message}`);
@@ -187,4 +188,60 @@ export async function createInvoice(form: FormData) {
   if (invoiceError || !invoice) throw new Error(`No se pudo emitir la factura: ${invoiceError?.message ?? "error desconocido"}`);
   revalidatePath("/finance");
   redirect(`/documents/invoice/${invoice.id}`);
+}
+
+export async function convertPublicRequestToQuote(form: FormData) {
+  const { supabase, tenantId } = await getTenantContext();
+  const requestId = text(form, "request_id");
+  const { data: request, error: requestError } = await supabase.from("public_booking_requests").select("*").eq("id", requestId).eq("status", "NEW").single();
+  if (requestError || !request) fail("La solicitud ya fue gestionada o no existe");
+
+  const [{ data: product, error: productError }, { data: contractRate }] = await Promise.all([
+    supabase.from("products").select("id,name").eq("id", request.product_id).single(),
+    supabase.from("contract_rates").select("cost_amount").eq("product_id", request.product_id).lte("valid_from", request.service_date).gte("valid_to", request.service_date).order("cost_amount").limit(1).maybeSingle(),
+  ]);
+  if (productError || !product) fail("El servicio solicitado ya no existe");
+  const productName = product?.name;
+  if (!productName) fail("El servicio solicitado no tiene nombre comercial");
+
+  let { data: customer } = await supabase.from("customers").select("id").ilike("email", request.email).limit(1).maybeSingle();
+  if (!customer) {
+    const parts = String(request.customer_name).trim().split(/\s+/);
+    const firstName = parts.shift() ?? request.customer_name;
+    const lastName = parts.join(" ") || "—";
+    const created = await supabase.from("customers").insert({ tenant_id: tenantId, first_name: firstName, last_name: lastName, email: request.email, phone: request.phone, language: "es" }).select("id").single();
+    if (created.error || !created.data) fail(`No se pudo crear el cliente: ${created.error?.message ?? "error desconocido"}`);
+    customer = created.data;
+  }
+  const customerId = customer?.id;
+  if (!customerId) fail("No se pudo identificar al cliente de la solicitud");
+
+  const quantity = request.unit === "PER_PERSON" ? request.adults + request.children : 1;
+  const unitCost = Number(contractRate?.cost_amount ?? 0);
+  const quoteRef = reference("COT");
+  const { data: quote, error: quoteError } = await supabase.from("quotes").insert({
+    tenant_id: tenantId,
+    reference: quoteRef,
+    agency_id: request.agency_id,
+    customer_id: customerId,
+    status: "DRAFT",
+    travel_start: request.service_date,
+    travel_end: request.service_date,
+    currency: request.currency,
+    total_cost: unitCost * quantity,
+    total_sale: request.total_amount,
+    notes: [request.notes, `Solicitud web ${request.reference} · ${request.adults} adultos · ${request.children} niños`].filter(Boolean).join("\n"),
+    pricing_snapshot: { source: "AGENCY_STOREFRONT", request_reference: request.reference, product_name: productName, unit_cost: unitCost, unit_sale: request.unit_price, quantity, generated_at: new Date().toISOString() },
+  }).select("id").single();
+  if (quoteError || !quote) fail(`No se pudo crear la cotización: ${quoteError?.message ?? "error desconocido"}`);
+  const quoteId = quote?.id;
+  if (!quoteId) fail("No se pudo identificar la cotización creada");
+
+  const { error: serviceError } = await supabase.from("quote_services").insert({ tenant_id: tenantId, quote_id: quoteId, product_id: request.product_id, service_date: request.service_date, quantity, cost_amount: unitCost * quantity, sale_amount: request.total_amount, status: "OPTION" });
+  if (serviceError) fail(`La cotización se creó sin servicio: ${serviceError.message}`);
+  await supabase.from("public_booking_requests").update({ status: "QUOTED", quote_id: quoteId, updated_at: new Date().toISOString() }).eq("id", request.id);
+  revalidatePath("/operations");
+  revalidatePath("/dashboard");
+  revalidatePath("/sales");
+  redirect(`/documents/quote/${quoteId}`);
 }

@@ -8,13 +8,14 @@ import { activityTypeLabels, statusLabels, translateTaskTitle } from "@/lib/labe
 export default async function DashboardPage() {
   const { supabase, user, displayName } = await getTenantContext();
   const today = new Date(); const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString(); const soon = new Date(today); soon.setDate(soon.getDate() + 14);
-  const [{ data: bookings }, { data: quotes }, { data: invoices }, { data: tasks }, { data: activities }, { count: agencyCount }] = await Promise.all([
+  const [{ data: bookings }, { data: quotes }, { data: invoices }, { data: tasks }, { data: activities }, { count: agencyCount }, { count: webRequestCount }] = await Promise.all([
     supabase.from("bookings").select("id,reference,status,travel_start,total_sale,total_cost,currency").gte("created_at", monthStart),
     supabase.from("quotes").select("id,reference,status,total_sale,travel_start").order("created_at", { ascending: false }).limit(5),
     supabase.from("invoices").select("status,total_amount"),
     supabase.from("operations_tasks").select("id,title,status,priority,due_at").eq("assigned_to", user.id).in("status", ["OPEN", "IN_PROGRESS"]).order("due_at").limit(5),
     supabase.from("activities").select("id,title,starts_at,status,activity_type").gte("starts_at", today.toISOString()).lte("starts_at", soon.toISOString()).order("starts_at").limit(8),
-    supabase.from("agencies").select("id", { count: "exact", head: true }).eq("status", "ACTIVE")
+    supabase.from("agencies").select("id", { count: "exact", head: true }).eq("status", "ACTIVE"),
+    supabase.from("public_booking_requests").select("id", { count: "exact", head: true }).eq("status", "NEW")
   ]);
   const sales = bookings?.reduce((sum, item) => sum + Number(item.total_sale), 0) ?? 0;
   const profit = bookings?.reduce((sum, item) => sum + Number(item.total_sale) - Number(item.total_cost), 0) ?? 0;
@@ -22,6 +23,7 @@ export default async function DashboardPage() {
   const metrics = [["Ventas del mes", `USD ${sales.toLocaleString("es-ES", { maximumFractionDigits: 0 })}`, CircleDollarSign], ["Reservas", String(bookings?.length ?? 0), CalendarDays], ["Beneficio previsto", `USD ${profit.toLocaleString("es-ES", { maximumFractionDigits: 0 })}`, TrendingUp], ["Cuentas por cobrar", `USD ${receivables.toLocaleString("es-ES", { maximumFractionDigits: 0 })}`, CreditCard]] as const;
   return <AppShell>
     <PageHeader eyebrow="Centro de control" title={`Buenos días, ${displayName}.`} description="Ventas, agenda y prioridades calculadas con datos operativos reales." actions={<Link href="/sales" className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white">Crear cotización</Link>}/>
+    {(webRequestCount ?? 0) > 0 ? <Link href="/operations#solicitudes-web" className="mt-5 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><span><strong>{webRequestCount} solicitudes web nuevas</strong> esperan revisión desde portales de agencia.</span><span className="font-semibold">Revisar →</span></Link> : null}
     <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map(([metricLabel, value, Icon]) => <GlassPanel key={metricLabel} className="p-4"><div className="flex items-start justify-between"><p className="text-xs font-medium text-muted">{metricLabel}</p><Icon size={16} className="text-accent"/></div><p className="mt-5 text-2xl font-semibold tracking-tight">{value}</p><p className="mt-1 text-xs text-muted">Actualizado ahora</p></GlassPanel>)}</section>
     <section className="mt-5 grid gap-5 xl:grid-cols-[1.45fr_1fr]">
       <GlassPanel className="overflow-hidden"><div className="flex items-center justify-between p-5"><div><h2 className="font-semibold">Actividad comercial reciente</h2><p className="mt-1 text-xs text-muted">Cotizaciones listas para seguimiento o conversión.</p></div><Link href="/sales" className="text-xs font-semibold text-accent">Gestionar ventas <ArrowUpRight className="inline" size={13}/></Link></div><div className="divide-y">{quotes?.map((quote) => <div key={quote.id} className="flex items-center justify-between p-4"><div><p className="font-mono text-sm font-semibold text-accent">{quote.reference}</p><p className="mt-1 text-xs text-muted">Servicio {quote.travel_start} · {statusLabels[quote.status] ?? quote.status}</p></div><div className="text-right"><p className="font-semibold">USD {Number(quote.total_sale).toFixed(2)}</p><Link href={`/documents/quote/${quote.id}`} className="text-xs text-accent">Abrir cotización</Link></div></div>)}</div></GlassPanel>
